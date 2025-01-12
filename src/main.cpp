@@ -1,105 +1,100 @@
-#include <Adafruit_NeoPixel.h>
+#include <SPI.h>
 #include <Ethernet.h>
 #include <EthernetUdp.h>
+#include <Adafruit_NeoPixel.h>
 
-// Configuration
-#define NUM_STRIPS 5           // Number of LED strips
-#define LED_COUNT 14           // Number of LEDs per strip
-#define LED_PINS {6, 7, 8, 9, 10} // Pins connected to the WS2812B strips
+// Pin configuration
+#define LED_PIN 6
+#define NUM_LEDS_PER_SECTION 14
+#define NUM_SECTIONS 5
+#define NUM_LEDS (NUM_LEDS_PER_SECTION * NUM_SECTIONS)
 
-// Static IP, Gateway, and Subnet Configuration
-byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };  // MAC address
-IPAddress ip(10, 75, 140, 5);  // Static IP address
-IPAddress gateway(10, 75, 140, 1);  // Gateway IP address
-IPAddress subnet(255, 255, 255, 0);  // Subnet mask
+// Ethernet configuration
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+IPAddress ip(10, 75, 140, 5);
+unsigned int localPort = 5005;
 
-// Define an array of colors to cycle through (Red, Green, Blue, Purple, White)
-uint32_t colorCycle[] = {
-  0xFF0000, // Red
-  0x00FF00, // Green
-  0x0000FF, // Blue
-  0x800080, // Purple
-  0xFFFFFF  // White
-};
-
-int currentColorIndex = 0; // To track the current color in the cycle
-
-// Create an array of NeoPixel objects
-Adafruit_NeoPixel strips[NUM_STRIPS] = {
-  Adafruit_NeoPixel(LED_COUNT, 6, NEO_GRB + NEO_KHZ800),
-  Adafruit_NeoPixel(LED_COUNT, 7, NEO_GRB + NEO_KHZ800),
-  Adafruit_NeoPixel(LED_COUNT, 8, NEO_GRB + NEO_KHZ800),
-  Adafruit_NeoPixel(LED_COUNT, 9, NEO_GRB + NEO_KHZ800),
-  Adafruit_NeoPixel(LED_COUNT, 10, NEO_GRB + NEO_KHZ800)
-};
-
-// Ethernet and UDP objects
+// UDP
 EthernetUDP Udp;
-unsigned int localPort = 5005;  // Port to listen on
+char packetBuffer[UDP_TX_PACKET_MAX_SIZE];
 
-// Initialize all strips
-void initializeStrips() {
-  for (int i = 0; i < NUM_STRIPS; i++) {
-    strips[i].begin();
-    strips[i].show(); // Ensure all LEDs are off initially
+// LED strip
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// Default colors for each section
+uint32_t sectionColors[NUM_SECTIONS] = {
+  strip.Color(255, 0, 0),    // Red
+  strip.Color(0, 255, 0),    // Green
+  strip.Color(0, 0, 255),    // Blue
+  strip.Color(128, 0, 128),  // Purple
+  strip.Color(255, 255, 255) // White
+};
+
+int parseSection(const char* sectionStr) {
+  if (strncmp(sectionStr, "LED", 3) == 0) {
+    return atoi(sectionStr + 3) - 1;
+  }
+  return -1;
+}
+
+bool parseState(const char* stateStr) {
+  return (strcmp(stateStr, "On") == 0);
+}
+
+void setSectionState(int sectionIndex, bool state) {
+  uint32_t color = state ? sectionColors[sectionIndex] : strip.Color(0, 0, 0);
+
+  int start = sectionIndex * NUM_LEDS_PER_SECTION;
+  int end = start + NUM_LEDS_PER_SECTION;
+
+  for (int i = start; i < end; i++) {
+    strip.setPixelColor(i, color);
+  }
+
+  strip.show();
+}
+
+void setSectionColor(int sectionIndex, uint32_t color) {
+  if (sectionIndex >= 0 && sectionIndex < NUM_SECTIONS) {
+    sectionColors[sectionIndex] = color;
   }
 }
 
-// Function to turn all strips on with a specified color
-void turnAllStripsOn(uint32_t color) {
-  for (int i = 0; i < NUM_STRIPS; i++) {
-    for (int j = 0; j < LED_COUNT; j++) {
-      strips[i].setPixelColor(j, color);
+void processPacket(char* packet) {
+  // Split packet by ';'
+  char* sectionStr = strtok(packet, ";");
+  char* stateStr = strtok(NULL, ";");
+
+  if (sectionStr && stateStr) {
+    int sectionIndex = parseSection(sectionStr);
+    bool state = parseState(stateStr);
+
+    if (sectionIndex >= 0 && sectionIndex < NUM_SECTIONS) {
+      setSectionState(sectionIndex, state);
     }
-    strips[i].show();
   }
 }
 
-// Function to change the color to the next in the cycle
-void changeColor() {
-  currentColorIndex = (currentColorIndex + 1) % (sizeof(colorCycle) / sizeof(colorCycle[0]));  // Move to the next color
-  turnAllStripsOn(colorCycle[currentColorIndex]); // Apply the new color to all strips
-}
-
-// Setup function
 void setup() {
-  // Start Serial Monitor for debugging
-  Serial.begin(9600);
-  
-  // Initialize Ethernet with static IP, subnet, and gateway
-  if (Ethernet.begin(mac) == 0) {
-    Serial.println("Failed to initialize Ethernet.");
-    while (true);  // Stay here forever if Ethernet initialization fails
-  }
-  
-  // Set static IP, gateway, and subnet
-  Ethernet.begin(mac, ip, subnet, gateway);
-  
-  // Print the IP address, gateway, and subnet to Serial
-  Serial.print("IP Address: ");
-  Serial.println(Ethernet.localIP());
-  Serial.print("Gateway: ");
-  Serial.println(gateway);
-  Serial.print("Subnet Mask: ");
-  Serial.println(subnet);
+  // Initialize LED strip
+  strip.begin();
+  strip.show();
 
-  // Start listening for UDP packets
+  // Start Ethernet and UDP
+  Ethernet.begin(mac, ip);
   Udp.begin(localPort);
-  
-  // Initialize the NeoPixel strips
-  initializeStrips();
-  
-  // Set the initial color
-  turnAllStripsOn(colorCycle[currentColorIndex]);
+
+  Serial.begin(9600);
+  Serial.println("WS2812B Controller Ready");
 }
 
-// Loop function
 void loop() {
-  int packetSize = Udp.parsePacket(); // Check for incoming UDP packets
-
+  int packetSize = Udp.parsePacket();
   if (packetSize) {
-    // If a packet is received, change the color of the strips
-    Serial.println("Packet received. Changing color.");
-    changeColor();  // Change color to the next one in the cycle
+    Udp.read(packetBuffer, UDP_TX_PACKET_MAX_SIZE);
+    packetBuffer[packetSize] = '\0';
+    Serial.println(packetBuffer);
+
+    processPacket(packetBuffer);
   }
 }
