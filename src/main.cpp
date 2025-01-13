@@ -64,7 +64,7 @@ void setSectionColor(int sectionIndex, uint32_t color) {
   }
 }
 
-void processPacket(char* packet) {
+void processControlMessage(char* packet) {
   // Split packet by ';'
   char* sectionStr = strtok(packet, ";");
   char* stateStr = strtok(NULL, ";");
@@ -78,6 +78,46 @@ void processPacket(char* packet) {
       setSectionState(strip2, sectionIndex, state);
       setSectionState(strip3, sectionIndex, state);
     }
+  }
+}
+
+void processSetupMessage(char* packet) {
+  // Split packet by ';'
+  char* args[10];
+  for (int i = 0; i < 10; i++) {
+    args[i] = strtok(i == 0 ? packet : NULL, ";");
+  }
+
+  if (args[0] && strcmp(args[0], "Brightness") == 0) {
+    int stripNumber = atoi(args[1]);
+    int sectionNumber = atoi(args[2]);
+    int brightness = atoi(args[3]);
+
+    if (stripNumber >= 1 && stripNumber <= 3 && sectionNumber >= 1 && sectionNumber <= 5) {
+      Adafruit_NeoPixel* strip;
+      if (stripNumber == 1) strip = &strip1;
+      else if (stripNumber == 2) strip = &strip2;
+      else strip = &strip3;
+
+      int sectionIndex = sectionNumber - 1;
+      int start = sectionIndex * NUM_LEDS_PER_SECTION;
+      int end = start + NUM_LEDS_PER_SECTION;
+
+      strip->setBrightness(map(brightness, 0, 100, 0, 255));
+      for (int i = start; i < end; i++) {
+        strip->setPixelColor(i, sectionColors[sectionIndex]);
+      }
+      strip->show();
+    }
+  }
+}
+
+void processPacket(char* packet) {
+  char* type = strtok(packet, ";");
+  if (type && strcmp(type, "Control") == 0) {
+    processControlMessage(strtok(NULL, ""));
+  } else if (type && strcmp(type, "Setup") == 0) {
+    processSetupMessage(strtok(NULL, ""));
   }
 }
 
