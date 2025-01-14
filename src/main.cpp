@@ -83,8 +83,8 @@ void processControlMessage(char* packet) {
 
 void processSetupMessage(char* packet) {
   // Split packet by ';'
-  char* args[10];
-  for (int i = 0; i < 10; i++) {
+  char* args[4];
+  for (int i = 0; i < 4; i++) {
     args[i] = strtok(i == 0 ? packet : NULL, ";");
   }
 
@@ -113,23 +113,32 @@ void processSetupMessage(char* packet) {
 }
 
 void processPacket(char* packet) {
-  char* type = strtok(packet, ";");
-  if (type && strcmp(type, "Control") == 0) {
-    processControlMessage(strtok(NULL, ""));
-  } else if (type && strcmp(type, "Setup") == 0) {
-    processSetupMessage(strtok(NULL, ""));
+  int delimiterCount = 0;
+  for (char* p = packet; *p; ++p) {
+    if (*p == ';') delimiterCount++;
+  }
+
+  if (delimiterCount == 4) {
+    processControlMessage(packet);
+  } else if (delimiterCount == 3) {
+    processSetupMessage(packet);
+  } else {
+    Serial.println("Invalid packet format");
   }
 }
 
 void setup() {
   // Initialize LED strips
   strip1.begin();
+  strip1.setBrightness(255); // Set default brightness to 100%
   strip1.show();
 
   strip2.begin();
+  strip2.setBrightness(255); // Set default brightness to 100%
   strip2.show();
 
   strip3.begin();
+  strip3.setBrightness(255); // Set default brightness to 100%
   strip3.show();
 
   // Start Ethernet and UDP
